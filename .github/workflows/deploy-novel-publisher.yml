@@ -8,8 +8,46 @@ on:
       - 'automation/cloudflare-publisher/**'
       - '.github/workflows/deploy-novel-publisher.yml'
 
+permissions:
+  contents: write
+
 jobs:
+  check-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Cloudflare secret presence without exposing values
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          TOKEN_PRESENT=false
+          ACCOUNT_PRESENT=false
+          [ -n "$CF_API_TOKEN" ] && TOKEN_PRESENT=true
+          [ -n "$CF_ACCOUNT_ID" ] && ACCOUNT_PRESENT=true
+
+          mkdir -p /tmp/cloudflare-secret-status
+          cat > /tmp/cloudflare-secret-status/status.json <<EOF
+          {
+            "CLOUDFLARE_API_TOKEN": ${TOKEN_PRESENT},
+            "CLOUDFLARE_ACCOUNT_ID": ${ACCOUNT_PRESENT},
+            "checked_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan cloudflare-secret-status-temp
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -R /tmp/cloudflare-secret-status/. .
+          git add status.json
+          git commit -m "Update Cloudflare secret presence status"
+          git push --force origin HEAD:cloudflare-secret-status
+
   deploy:
+    needs: check-secrets
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
