@@ -68,22 +68,32 @@ async function inspectSite(
   let context: any;
 
   try {
-    context = await browser.newContext(
-      storedState ? { storageState: storedState as any } : {},
-    );
+    context = await browser.newContext({
+      ...(storedState ? { storageState: storedState as any } : {}),
+      viewport: { width: 800, height: 600 },
+    });
     const page = await context.newPage();
-    await page.goto(SITES[site], {
+    const response = await page.goto(SITES[site], {
       waitUntil: "domcontentloaded",
       timeout: 45_000,
     });
     await page.waitForTimeout(1500);
 
+    const httpStatus = response?.status() ?? null;
+    const title = await page.title();
+    const targetBlocked =
+      httpStatus === 403 ||
+      /ERROR:\s*The request could not be satisfied/i.test(title);
+    const httpOk = httpStatus === null || (httpStatus >= 200 && httpStatus < 400);
+
     const result: Record<string, unknown> = {
-      ok: true,
+      ok: httpOk && !targetBlocked,
       site,
       requestedUrl: SITES[site],
       finalUrl: page.url(),
-      title: await page.title(),
+      httpStatus,
+      title,
+      targetBlocked,
       hasStoredSession: Boolean(storedState),
       checkedAt: new Date().toISOString(),
     };
@@ -92,7 +102,7 @@ async function inspectSite(
       const image = await page.screenshot({
         fullPage: false,
         type: "jpeg",
-        quality: 55,
+        quality: 35,
       });
       result.screenshotMime = "image/jpeg";
       result.screenshotBase64 = bytesToBase64(image);
@@ -157,8 +167,6 @@ export default {
     if (url.pathname === "/verify-sites") {
       let browser;
       try {
-        // One browser acquisition only. This avoids Free-plan acquisition limits
-        // while still keeping Kakuyomu and Nola isolated in separate contexts.
         browser = await launch(env.BROWSER);
         const kakuyomu = await inspectSite(browser, env, "kakuyomu", true);
         const nola = await inspectSite(browser, env, "nola", true);
@@ -202,9 +210,10 @@ export default {
         }
 
         const storedState = await loadStorageState(env, site);
-        const context = await browser.newContext(
-          storedState ? { storageState: storedState as any } : {},
-        );
+        const context = await browser.newContext({
+          ...(storedState ? { storageState: storedState as any } : {}),
+          viewport: { width: 800, height: 600 },
+        });
         try {
           const page = await context.newPage();
           await page.goto(SITES[site], {
