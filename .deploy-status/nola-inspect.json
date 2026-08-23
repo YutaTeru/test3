@@ -1,0 +1,30 @@
+{
+  "service": "novel-auto-publisher",
+  "target": "nola",
+  "generated_at_utc": "2026-08-23T14:18:55.638Z",
+  "run_id": "32645024794",
+  "run_number": "21",
+  "commit_sha": "04a998fab6da6539b8665b4ef6afdd4647f4c2d6",
+  "http_code": "502",
+  "ok": false,
+  "page": {
+    "http_status": null,
+    "title": null,
+    "path_pattern": null
+  },
+  "auth_indicators": {
+    "logout_text_present": false,
+    "mypage_text_present": false,
+    "login_text_present": false
+  },
+  "counts": {
+    "links": 0,
+    "buttons": 0,
+    "inputs": 0,
+    "content_editables": 0
+  },
+  "candidate_links": [],
+  "candidate_buttons": [],
+  "candidate_inputs": [],
+  "error": "Unable to create new browser: code: 429: message: Rate limit exceeded"
+}
