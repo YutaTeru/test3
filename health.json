@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "service": "novel-auto-publisher",
+  "mode": "nola-only",
+  "sessionStore": "SESSION_KV",
+  "storyUrl": "https://story.nola-novel.com/",
+  "editorUrl": "https://nola-novel.com/",
+  "phase": "inspect-nola-editor"
+}
