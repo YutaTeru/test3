@@ -81,3 +81,86 @@ jobs:
             git commit -m "Update novel publisher deployment status"
             git push origin HEAD:main
           fi
+
+      - name: Verify Worker and Browser Run
+        if: steps.deploy.outcome == 'success'
+        working-directory: .
+        continue-on-error: true
+        run: |
+          set +e
+          WORKER_URL="https://novel-auto-publisher.itisnowornever271.workers.dev"
+          OUT="/tmp/publisher-check"
+          mkdir -p "$OUT/screenshots"
+
+          probe_json() {
+            local name="$1"
+            local url="$2"
+            curl --silent --show-error --fail --max-time 90 "$url" -o "$OUT/$name.json"
+            echo $? > "$OUT/$name.exit"
+          }
+
+          probe_png() {
+            local name="$1"
+            local url="$2"
+            curl --silent --show-error --fail --max-time 90 "$url" -o "$OUT/screenshots/$name.png"
+            echo $? > "$OUT/$name.exit"
+          }
+
+          probe_json health "$WORKER_URL/health"
+          probe_json kakuyomu "$WORKER_URL/browser-check?site=kakuyomu"
+          probe_json nola "$WORKER_URL/browser-check?site=nola"
+          probe_png kakuyomu "$WORKER_URL/screenshot?site=kakuyomu"
+          probe_png nola "$WORKER_URL/screenshot?site=nola"
+
+          export WORKER_URL OUT
+          export GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const out = process.env.OUT;
+          const readExit = (name) => {
+            try { return Number(fs.readFileSync(path.join(out, `${name}.exit`), 'utf8').trim()); }
+            catch { return 999; }
+          };
+          const readJson = (name) => {
+            try { return JSON.parse(fs.readFileSync(path.join(out, `${name}.json`), 'utf8')); }
+            catch { return null; }
+          };
+          const report = {
+            worker_url: process.env.WORKER_URL,
+            generated_at_utc: process.env.GENERATED_AT,
+            health: { exit_code: readExit('health'), response: readJson('health') },
+            kakuyomu: {
+              browser_check_exit_code: readExit('kakuyomu'),
+              browser_check: readJson('kakuyomu'),
+              screenshot_exit_code: readExit('kakuyomu'),
+              screenshot: 'screenshots/kakuyomu.png',
+            },
+            nola: {
+              browser_check_exit_code: readExit('nola'),
+              browser_check: readJson('nola'),
+              screenshot_exit_code: readExit('nola'),
+              screenshot: 'screenshots/nola.png',
+            },
+          };
+          fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2) + '\n');
+          NODE
+
+      - name: Publish latest Browser Run check
+        if: steps.deploy.outcome == 'success'
+        working-directory: .
+        run: |
+          if [ ! -f /tmp/publisher-check/report.json ]; then
+            echo "No publisher check report was generated"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan publisher-check-temp
+          git rm -rf . >/dev/null 2>&1 || true
+          git clean -fdx >/dev/null 2>&1 || true
+          cp -R /tmp/publisher-check/. .
+          git add .
+          git commit -m "Update latest novel publisher browser check"
+          git push --force origin HEAD:publisher-check-latest
