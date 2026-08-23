@@ -7,5 +7,10 @@
   "compatibility_flags": ["nodejs_compat"],
   "browser": {
     "binding": "BROWSER"
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SESSION_KV"
+    }
+  ]
 }
