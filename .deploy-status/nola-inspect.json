@@ -1,24 +1,24 @@
 {
   "service": "novel-auto-publisher",
   "target": "nola",
-  "generated_at_utc": "2026-08-23T14:23:28.131Z",
-  "run_id": "32645256097",
-  "run_number": "1",
-  "commit_sha": "27d11a33f6a0c716e4cc7f04c4eda920b2c0cf37",
+  "generated_at_utc": "2026-08-23T14:29:10.726Z",
+  "run_id": "32645544344",
+  "run_number": "2",
+  "commit_sha": "de1484152ae957f282ac29d940cd2efb619f96f4",
   "http_code": "200",
   "ok": true,
   "page": {
     "http_status": 200,
-    "title": "Nolaノベル｜小説の向こうに広がる世界に出かけよう",
+    "title": "Nola（ノラ）｜作家専用エディタツール",
     "path_pattern": "/"
   },
   "auth_indicators": {
     "logout_text_present": false,
     "mypage_text_present": false,
-    "login_text_present": false
+    "login_text_present": true
   },
   "counts": {
-    "links": 0,
+    "links": 11,
     "buttons": 0,
     "inputs": 0,
     "content_editables": 0
