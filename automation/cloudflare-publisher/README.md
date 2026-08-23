@@ -27,6 +27,15 @@ Cloudflare公式のBrowser Run用Playwrightを使うため、`wrangler.jsonc` �
 - `compatibility_flags: ["nodejs_compat"]`
 - Browser binding: `BROWSER`
 
+## GitHub Actions デプロイ
+
+`.github/workflows/deploy-novel-publisher.yml` により、このフォルダまたはWorkflow更新時にCloudflareへ自動デプロイする。
+
+必要なGitHub Actions Secrets:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
 ## 次の段階：ログイン状態をKVに保存
 
 Cloudflare Browser RunはPlaywrightの `storageState` をWorkers KVに保存できる。Cookie・localStorage・IndexedDB等を保存し、毎回パスワードを入力せずログイン状態を再利用する。
