@@ -1,0 +1,17 @@
+{
+  "service": "novel-auto-publisher",
+  "site": "nola-editor",
+  "run_id": "32645611046",
+  "run_number": "1",
+  "commit_sha": "82f26cd644bac18ee14e6c104f7626e16c61ae01",
+  "generated_at_utc": "2026-08-23T14:40:31.789Z",
+  "handoff_http_code": "500",
+  "handoff_ok": false,
+  "stored_session": true,
+  "session_meta": {
+    "savedAt": "2026-08-23T14:02:20.712Z",
+    "finalUrl": "https://story.nola-novel.com/",
+    "title": "Nolaノベル｜小説の向こうに広がる世界に出かけよう"
+  },
+  "error": null
+}
