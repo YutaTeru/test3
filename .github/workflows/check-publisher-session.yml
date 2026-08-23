@@ -1,0 +1,58 @@
+name: Check Publisher Session
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'automation/cloudflare-publisher/session-check-trigger.json'
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check saved sessions
+        run: |
+          mkdir -p .deploy-status
+          curl --silent --show-error --fail --max-time 30 \
+            'https://novel-auto-publisher.itisnowornever271.workers.dev/session-status' \
+            -o /tmp/session-status.json
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = JSON.parse(fs.readFileSync('/tmp/session-status.json', 'utf8'));
+          const sessions = raw.sessions || {};
+          const safe = {
+            service: 'novel-auto-publisher',
+            generated_at_utc: new Date().toISOString(),
+            kakuyomu: {
+              stored: Boolean(sessions.kakuyomu?.stored ?? sessions.kakuyomu),
+              meta: sessions.kakuyomu?.meta || null,
+            },
+            nola: {
+              stored: Boolean(sessions.nola?.stored ?? sessions.nola),
+              meta: sessions.nola?.meta || null,
+            },
+          };
+          fs.writeFileSync('.deploy-status/publisher-session.json', JSON.stringify(safe, null, 2) + '\n');
+          NODE
+
+      - name: Publish sanitized session status
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .deploy-status/publisher-session.json
+          if git diff --cached --quiet; then
+            echo "Session status unchanged"
+          else
+            git commit -m "Update publisher session status"
+            git push origin HEAD:main
+          fi
