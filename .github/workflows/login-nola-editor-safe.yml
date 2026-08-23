@@ -1,0 +1,148 @@
+name: Login Nola Editor Safely
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'nola-editor-login-run.json'
+
+permissions:
+  contents: write
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    defaults:
+      run:
+        working-directory: automation/cloudflare-publisher
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate ephemeral login token
+        id: login_token
+        shell: bash
+        run: |
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Set temporary Worker login secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          LOGIN_RUN_TOKEN: ${{ steps.login_token.outputs.token }}
+        run: |
+          printf '%s\n' "$LOGIN_RUN_TOKEN" | npx wrangler secret put LOGIN_RUN_TOKEN
+
+      - name: Start Nola editor human login
+        id: handoff
+        timeout-minutes: 12
+        shell: bash
+        env:
+          LOGIN_RUN_TOKEN: ${{ steps.login_token.outputs.token }}
+        run: |
+          HTTP_CODE="401"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            set +e
+            HTTP_CODE="$(curl --silent --show-error \
+              --max-time 700 \
+              -X POST \
+              -H "x-login-run-token: $LOGIN_RUN_TOKEN" \
+              -o "$GITHUB_WORKSPACE/nola-editor-login-result.json" \
+              -w '%{http_code}' \
+              "https://novel-auto-publisher.itisnowornever271.workers.dev/login-handoff")"
+            CURL_EXIT=$?
+            set -e
+
+            if [ "$HTTP_CODE" != "401" ]; then
+              break
+            fi
+
+            echo "Worker secret not propagated yet; retry $attempt/10"
+            sleep 3
+          done
+
+          echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+          echo "curl_exit=$CURL_EXIT" >> "$GITHUB_OUTPUT"
+          echo "Nola editor handoff finished with HTTP $HTTP_CODE"
+
+      - name: Verify saved Nola editor session
+        if: always()
+        run: |
+          curl --silent --show-error --max-time 30 \
+            "https://novel-auto-publisher.itisnowornever271.workers.dev/session-status" \
+            -o "$GITHUB_WORKSPACE/nola-editor-session-status.json" || true
+
+      - name: Remove temporary Worker login secret
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          printf '{"LOGIN_RUN_TOKEN":null}\n' | npx wrangler secret bulk || true
+
+      - name: Record sanitized Nola editor login status
+        if: always()
+        working-directory: .
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
+          HANDOFF_HTTP_CODE: ${{ steps.handoff.outputs.http_code }}
+        run: |
+          mkdir -p .deploy-status
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const root = process.env.GITHUB_WORKSPACE;
+          const readJson = (name) => {
+            try { return JSON.parse(fs.readFileSync(path.join(root, name), 'utf8')); }
+            catch { return null; }
+          };
+          const handoff = readJson('nola-editor-login-result.json');
+          const session = readJson('nola-editor-session-status.json');
+          const status = {
+            service: 'novel-auto-publisher',
+            site: 'nola-editor',
+            run_id: process.env.RUN_ID,
+            run_number: process.env.RUN_NUMBER,
+            commit_sha: process.env.COMMIT_SHA,
+            generated_at_utc: new Date().toISOString(),
+            handoff_http_code: process.env.HANDOFF_HTTP_CODE || null,
+            handoff_ok: Boolean(handoff?.ok),
+            stored_session: Boolean(session?.hasStoredSession),
+            session_meta: session?.meta || null,
+            error: handoff?.ok ? null : (handoff?.reason || handoff?.error || null),
+          };
+          fs.writeFileSync(
+            '.deploy-status/nola-editor-login.json',
+            JSON.stringify(status, null, 2) + '\n',
+          );
+          NODE
+          rm -f "$GITHUB_WORKSPACE/nola-editor-login-result.json"
+          rm -f "$GITHUB_WORKSPACE/nola-editor-session-status.json"
+
+      - name: Publish sanitized Nola editor login status
+        if: always()
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .deploy-status/nola-editor-login.json
+          if git diff --cached --quiet; then
+            echo "Nola editor login status unchanged"
+          else
+            git commit -m "Update Nola editor login status"
+            git push origin HEAD:main
+          fi
