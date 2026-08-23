@@ -92,58 +92,53 @@ jobs:
           OUT="/tmp/publisher-check"
           mkdir -p "$OUT/screenshots"
 
-          probe_json() {
-            local name="$1"
-            local url="$2"
-            curl --silent --show-error --fail --max-time 90 "$url" -o "$OUT/$name.json"
-            echo $? > "$OUT/$name.exit"
-          }
+          HEALTH_CODE="$(curl --silent --show-error --max-time 30 -o "$OUT/health.json" -w '%{http_code}' "$WORKER_URL/health" || echo 000)"
+          VERIFY_CODE="$(curl --silent --show-error --max-time 120 -o "$OUT/verify-sites.json" -w '%{http_code}' "$WORKER_URL/verify-sites" || echo 000)"
+          SESSION_CODE="$(curl --silent --show-error --max-time 30 -o "$OUT/session-status.json" -w '%{http_code}' "$WORKER_URL/session-status" || echo 000)"
 
-          probe_png() {
-            local name="$1"
-            local file="$2"
-            local url="$3"
-            curl --silent --show-error --fail --max-time 90 "$url" -o "$OUT/screenshots/$file.png"
-            echo $? > "$OUT/$name.exit"
-          }
-
-          probe_json health "$WORKER_URL/health"
-          probe_json kakuyomu-browser "$WORKER_URL/browser-check?site=kakuyomu"
-          probe_json nola-browser "$WORKER_URL/browser-check?site=nola"
-          probe_png kakuyomu-shot kakuyomu "$WORKER_URL/screenshot?site=kakuyomu"
-          probe_png nola-shot nola "$WORKER_URL/screenshot?site=nola"
-
-          export WORKER_URL OUT
+          export WORKER_URL OUT HEALTH_CODE VERIFY_CODE SESSION_CODE
           export GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           node - <<'NODE'
           const fs = require('fs');
           const path = require('path');
           const out = process.env.OUT;
-          const readExit = (name) => {
-            try { return Number(fs.readFileSync(path.join(out, `${name}.exit`), 'utf8').trim()); }
-            catch { return 999; }
-          };
+
           const readJson = (name) => {
-            try { return JSON.parse(fs.readFileSync(path.join(out, `${name}.json`), 'utf8')); }
+            try { return JSON.parse(fs.readFileSync(path.join(out, name), 'utf8')); }
             catch { return null; }
           };
+
+          const health = readJson('health.json');
+          const verify = readJson('verify-sites.json');
+          const sessions = readJson('session-status.json');
+
+          if (verify) {
+            for (const site of ['kakuyomu', 'nola']) {
+              const item = verify[site];
+              if (item?.screenshotBase64) {
+                fs.writeFileSync(
+                  path.join(out, 'screenshots', `${site}.jpg`),
+                  Buffer.from(item.screenshotBase64, 'base64'),
+                );
+                item.screenshot = `screenshots/${site}.jpg`;
+                delete item.screenshotBase64;
+              }
+            }
+          }
+
           const report = {
             worker_url: process.env.WORKER_URL,
             generated_at_utc: process.env.GENERATED_AT,
-            health: { exit_code: readExit('health'), response: readJson('health') },
-            kakuyomu: {
-              browser_check_exit_code: readExit('kakuyomu-browser'),
-              browser_check: readJson('kakuyomu-browser'),
-              screenshot_exit_code: readExit('kakuyomu-shot'),
-              screenshot: 'screenshots/kakuyomu.png',
+            http: {
+              health: process.env.HEALTH_CODE,
+              verify_sites: process.env.VERIFY_CODE,
+              session_status: process.env.SESSION_CODE,
             },
-            nola: {
-              browser_check_exit_code: readExit('nola-browser'),
-              browser_check: readJson('nola-browser'),
-              screenshot_exit_code: readExit('nola-shot'),
-              screenshot: 'screenshots/nola.png',
-            },
+            health,
+            verify,
+            sessions,
           };
+
           fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2) + '\n');
           NODE
 
