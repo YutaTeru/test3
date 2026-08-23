@@ -50,8 +50,8 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          WORKER_URL="$(grep -Eo 'https://[^ ]+\.workers\.dev' "$GITHUB_WORKSPACE/wrangler-deploy.log" | tail -1 || true)"
-          GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export WORKER_URL="$(grep -Eo 'https://[^ ]+\.workers\.dev' "$GITHUB_WORKSPACE/wrangler-deploy.log" | tail -1 || true)"
+          export GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           mkdir -p .deploy-status
           node - <<'NODE'
@@ -67,13 +67,6 @@ jobs:
           };
           fs.writeFileSync('.deploy-status/novel-publisher.json', JSON.stringify(status, null, 2) + '\n');
           NODE
-        env:
-          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_NUMBER: ${{ github.run_number }}
-          COMMIT_SHA: ${{ github.sha }}
-          WORKER_URL: ${{ env.WORKER_URL }}
-          GENERATED_AT: ${{ env.GENERATED_AT }}
 
       - name: Publish deployment status
         if: always()
