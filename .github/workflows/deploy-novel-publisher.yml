@@ -8,6 +8,9 @@ on:
       - 'automation/cloudflare-publisher/**'
       - '.github/workflows/deploy-novel-publisher.yml'
 
+permissions:
+  contents: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -29,7 +32,59 @@ jobs:
         run: npm install
 
       - name: Deploy Worker
-        run: npx wrangler deploy
+        id: deploy
+        shell: bash
+        run: |
+          set -o pipefail
+          npx wrangler deploy 2>&1 | tee "$GITHUB_WORKSPACE/wrangler-deploy.log"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Record deployment status for ChatGPT
+        if: always()
+        working-directory: .
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          WORKER_URL="$(grep -Eo 'https://[^ ]+\.workers\.dev' "$GITHUB_WORKSPACE/wrangler-deploy.log" | tail -1 || true)"
+          GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          mkdir -p .deploy-status
+          node - <<'NODE'
+          const fs = require('fs');
+          const status = {
+            service: 'novel-auto-publisher',
+            outcome: process.env.DEPLOY_OUTCOME,
+            run_id: process.env.RUN_ID,
+            run_number: process.env.RUN_NUMBER,
+            commit_sha: process.env.COMMIT_SHA,
+            worker_url: process.env.WORKER_URL || null,
+            generated_at_utc: process.env.GENERATED_AT,
+          };
+          fs.writeFileSync('.deploy-status/novel-publisher.json', JSON.stringify(status, null, 2) + '\n');
+          NODE
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
+          WORKER_URL: ${{ env.WORKER_URL }}
+          GENERATED_AT: ${{ env.GENERATED_AT }}
+
+      - name: Publish deployment status
+        if: always()
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .deploy-status/novel-publisher.json
+          if git diff --cached --quiet; then
+            echo "Deployment status unchanged"
+          else
+            git commit -m "Update novel publisher deployment status"
+            git push origin HEAD:main
+          fi
