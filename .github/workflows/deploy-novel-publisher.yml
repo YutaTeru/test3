@@ -101,16 +101,17 @@ jobs:
 
           probe_png() {
             local name="$1"
-            local url="$2"
-            curl --silent --show-error --fail --max-time 90 "$url" -o "$OUT/screenshots/$name.png"
+            local file="$2"
+            local url="$3"
+            curl --silent --show-error --fail --max-time 90 "$url" -o "$OUT/screenshots/$file.png"
             echo $? > "$OUT/$name.exit"
           }
 
           probe_json health "$WORKER_URL/health"
-          probe_json kakuyomu "$WORKER_URL/browser-check?site=kakuyomu"
-          probe_json nola "$WORKER_URL/browser-check?site=nola"
-          probe_png kakuyomu "$WORKER_URL/screenshot?site=kakuyomu"
-          probe_png nola "$WORKER_URL/screenshot?site=nola"
+          probe_json kakuyomu-browser "$WORKER_URL/browser-check?site=kakuyomu"
+          probe_json nola-browser "$WORKER_URL/browser-check?site=nola"
+          probe_png kakuyomu-shot kakuyomu "$WORKER_URL/screenshot?site=kakuyomu"
+          probe_png nola-shot nola "$WORKER_URL/screenshot?site=nola"
 
           export WORKER_URL OUT
           export GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -131,15 +132,15 @@ jobs:
             generated_at_utc: process.env.GENERATED_AT,
             health: { exit_code: readExit('health'), response: readJson('health') },
             kakuyomu: {
-              browser_check_exit_code: readExit('kakuyomu'),
-              browser_check: readJson('kakuyomu'),
-              screenshot_exit_code: readExit('kakuyomu'),
+              browser_check_exit_code: readExit('kakuyomu-browser'),
+              browser_check: readJson('kakuyomu-browser'),
+              screenshot_exit_code: readExit('kakuyomu-shot'),
               screenshot: 'screenshots/kakuyomu.png',
             },
             nola: {
-              browser_check_exit_code: readExit('nola'),
-              browser_check: readJson('nola'),
-              screenshot_exit_code: readExit('nola'),
+              browser_check_exit_code: readExit('nola-browser'),
+              browser_check: readJson('nola-browser'),
+              screenshot_exit_code: readExit('nola-shot'),
               screenshot: 'screenshots/nola.png',
             },
           };
