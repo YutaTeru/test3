@@ -9,6 +9,7 @@ interface KVLike {
 interface Env {
   BROWSER: Fetcher;
   SESSION_KV: KVLike;
+  LOGIN_RUN_TOKEN?: string;
 }
 
 type SiteKey = "kakuyomu" | "nola";
@@ -38,6 +39,10 @@ function sessionKey(site: SiteKey) {
   return `session:${site}`;
 }
 
+function sessionMetaKey(site: SiteKey) {
+  return `session-meta:${site}`;
+}
+
 async function loadStorageState(env: Env, site: SiteKey): Promise<unknown | undefined> {
   const raw = await env.SESSION_KV.get(sessionKey(site));
   if (!raw) return undefined;
@@ -46,6 +51,16 @@ async function loadStorageState(env: Env, site: SiteKey): Promise<unknown | unde
     return JSON.parse(raw);
   } catch {
     return undefined;
+  }
+}
+
+async function loadSessionMeta(env: Env, site: SiteKey): Promise<unknown | null> {
+  const raw = await env.SESSION_KV.get(sessionMetaKey(site));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
 }
 
@@ -147,21 +162,130 @@ export default {
     if (url.pathname === "/session-status") {
       const site = getSite(url);
       if (site) {
-        const raw = await env.SESSION_KV.get(sessionKey(site));
-        return json({ ok: true, site, hasStoredSession: Boolean(raw) });
+        const [raw, meta] = await Promise.all([
+          env.SESSION_KV.get(sessionKey(site)),
+          loadSessionMeta(env, site),
+        ]);
+        return json({
+          ok: true,
+          site,
+          hasStoredSession: Boolean(raw),
+          meta,
+        });
       }
 
-      const [kakuyomu, nola] = await Promise.all([
+      const [kakuyomu, nola, kakuyomuMeta, nolaMeta] = await Promise.all([
         env.SESSION_KV.get(sessionKey("kakuyomu")),
         env.SESSION_KV.get(sessionKey("nola")),
+        loadSessionMeta(env, "kakuyomu"),
+        loadSessionMeta(env, "nola"),
       ]);
       return json({
         ok: true,
         sessions: {
-          kakuyomu: Boolean(kakuyomu),
-          nola: Boolean(nola),
+          kakuyomu: { stored: Boolean(kakuyomu), meta: kakuyomuMeta },
+          nola: { stored: Boolean(nola), meta: nolaMeta },
         },
       });
+    }
+
+    if (url.pathname === "/login-handoff") {
+      if (request.method !== "POST") {
+        return json({ ok: false, error: "POST required" }, { status: 405 });
+      }
+
+      const site = getSite(url);
+      if (!site) {
+        return json(
+          { ok: false, error: "Use ?site=kakuyomu or ?site=nola" },
+          { status: 400 },
+        );
+      }
+
+      const providedToken = request.headers.get("x-login-run-token");
+      if (!env.LOGIN_RUN_TOKEN || providedToken !== env.LOGIN_RUN_TOKEN) {
+        return json({ ok: false, error: "Unauthorized" }, { status: 401 });
+      }
+
+      let browser: any;
+      let context: any;
+      try {
+        browser = await launch(env.BROWSER, { keep_alive: 600000 });
+        context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+        const page = await context.newPage();
+        await page.goto(SITES[site], {
+          waitUntil: "domcontentloaded",
+          timeout: 45_000,
+        });
+        await page.waitForTimeout(1000);
+
+        const cdp = await context.newCDPSession(page);
+
+        // Create Live View for the active tab. The URL is deliberately not returned
+        // or logged because this repository is public; the operator opens the same
+        // session from Cloudflare Dashboard > Browser Run > Live Sessions.
+        await (cdp.send as any)("Cloudflare.getLiveView", {
+          mode: "tab",
+          expiresInMs: 600000,
+        });
+
+        const handoffComplete = new Promise<any>((resolve) => {
+          (cdp.once as any)("Cloudflare.handoffComplete", resolve);
+        });
+
+        const handoff = await (cdp.send as any)("Cloudflare.handoff", {
+          instructions:
+            site === "kakuyomu"
+              ? "カクヨムにログインしてください。ログイン完了後、Live ViewのDoneを押してください。"
+              : "Nolaにログインしてください。ログイン完了後、Live ViewのDoneを押してください。",
+          timeout: 600000,
+        });
+
+        const completion = await handoffComplete;
+        if (!completion?.success) {
+          return json(
+            {
+              ok: false,
+              site,
+              handoffId: handoff?.handoffId ?? null,
+              reason: completion?.reason ?? "Human handoff was not completed",
+            },
+            { status: 408 },
+          );
+        }
+
+        const storageState = await context.storageState({ indexedDB: true });
+        const meta = {
+          savedAt: new Date().toISOString(),
+          finalUrl: page.url(),
+          title: await page.title(),
+        };
+
+        await Promise.all([
+          env.SESSION_KV.put(sessionKey(site), JSON.stringify(storageState)),
+          env.SESSION_KV.put(sessionMetaKey(site), JSON.stringify(meta)),
+        ]);
+
+        return json({
+          ok: true,
+          site,
+          saved: true,
+          handoffId: handoff?.handoffId ?? null,
+          meta,
+        });
+      } catch (error) {
+        return json(
+          {
+            ok: false,
+            site,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          { status: 502 },
+        );
+      } finally {
+        await context?.close();
+        await browser?.close();
+      }
     }
 
     if (url.pathname === "/verify-sites") {
