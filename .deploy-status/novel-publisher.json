@@ -1,9 +1,9 @@
 {
   "service": "novel-auto-publisher",
   "outcome": "success",
-  "run_id": "32643207316",
-  "run_number": "7",
-  "commit_sha": "2c75e8d0682a1348b00e9293aeb3839466391bb4",
+  "run_id": "32643230005",
+  "run_number": "8",
+  "commit_sha": "848cb3515a342ac1d016800e51b6c88185ac99c3",
   "worker_url": "https://novel-auto-publisher.itisnowornever271.workers.dev",
-  "generated_at_utc": "2026-08-23T13:43:38Z"
+  "generated_at_utc": "2026-08-23T13:44:03Z"
 }
